@@ -1,5 +1,5 @@
 // src/client/pages/Feed.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { trpc } from '../utils/trpc';
 import { useAuth } from '@clerk/clerk-react';
 
@@ -20,7 +20,14 @@ export const Feed = () => {
         },
     });
 
-    const { userId } = useAuth();
+    const { userId, getToken } = useAuth();
+    useEffect(() => {
+        const fetchToken = async () => {
+            const token = await getToken();
+            console.log('Auth token:', token);
+        };
+        fetchToken();
+    }, [getToken]);
 
     if (isLoading) return <div>Loading...</div>;
 

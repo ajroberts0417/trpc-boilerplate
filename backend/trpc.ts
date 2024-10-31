@@ -1,27 +1,44 @@
 // src/server/trpc.ts
 import { initTRPC, TRPCError } from '@trpc/server';
 import { type CreateExpressContextOptions } from '@trpc/server/adapters/express';
-import { clerkClient, getAuth } from '@clerk/express';
+import { clerkClient, getAuth, type User } from '@clerk/express';
+import { prisma } from './prisma/client';
 
 export async function createContext({ req, res }: CreateExpressContextOptions) {
     const { userId } = getAuth(req);
-    const auth = getAuth(req);
-    const users = await clerkClient.users.getUserList();
-    console.log("USERS", users)
-    console.log("AUTH", auth)
-    console.log("CREATING CONTEXT", userId)
-    console.log("REQ", req.auth)
-    return { userId: userId ?? undefined, req, res };
+
+    let user = null;
+    if (userId) {
+        user = await prisma.user.findUnique({
+            where: { id: userId }
+        });
+
+        if (!user) {
+            const clerkUser = await clerkClient.users.getUser(userId);
+            user = await prisma.user.create({
+                data: {
+                    clerkId: userId,
+                    email: clerkUser.emailAddresses[0].emailAddress,
+                    name: clerkUser.firstName
+                        ? `${clerkUser.firstName} ${clerkUser.lastName || ''}`
+                        : undefined,
+                    avatarUrl: clerkUser.imageUrl
+                }
+            });
+        }
+    }
+
+    return { user, req, res };
 }
 
 type PublicContext = {
-    userId: undefined;
+    user: null;
     req: CreateExpressContextOptions['req'];
     res: CreateExpressContextOptions['res'];
 };
 
 type ProtectedContext = {
-    userId: string;
+    user: User;
     req: CreateExpressContextOptions['req'];
     res: CreateExpressContextOptions['res'];
 };
@@ -33,9 +50,9 @@ const t = initTRPC.context<Context>().create();
 const isAuthed = t.middleware(async ({ ctx, next }) => {
     const auth = getAuth(ctx.req);
     console.log("INSIDE MIDDLEWARE", auth)
-    if (!ctx.userId) throw new TRPCError({ code: 'UNAUTHORIZED' });
+    if (!ctx.user) throw new TRPCError({ code: 'UNAUTHORIZED' });
     return next({
-        ctx: { ...ctx, userId: ctx.userId } as ProtectedContext,
+        ctx: { ...ctx, user: ctx.user } as ProtectedContext,
     });
 });
 
